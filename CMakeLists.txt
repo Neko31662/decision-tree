@@ -73,11 +73,21 @@ add_test_target(cotp_test)
 # Shuffle 协议测试
 add_test_target(shuffle_test)
 
+# 随机排列生成协议测试
+add_test_target(per_gen_test)
+
 # Secure Permutaion 协议测试
 add_test_target(secure_permutaion_test)
 
 # OVE 协议测试
 add_test_target(ove_test)
+
+# 明文决策树基础测试（单进程）
+add_executable(plain_tree_test
+    src/test/plain_tree_test.cpp
+)
+setup_target(plain_tree_test)
+target_link_libraries(plain_tree_test pthread gmp OpenMP::OpenMP_CXX)
 
 # 如果有其他测试文件，可以按相同模式添加
 # add_executable(otherTest
