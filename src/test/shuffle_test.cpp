@@ -33,16 +33,8 @@ int main(int argc, char **argv) {
         netio->recv_data(1, &seed2, sizeof(block));
     }
     vector<PRGSync> PRGs = {PRGSync(&seed1), PRGSync(&seed2)};
-
-    block public_seed;
-    if (party_id == 0) {
-        public_seed = gen_seed();
-        netio->send_data(1, &public_seed, sizeof(block));
-        netio->send_data(2, &public_seed, sizeof(block));
-    } else {
-        netio->recv_data(0, &public_seed, sizeof(block));
-    }
-    PRGSync public_PRG(&public_seed);
+    block private_seed = gen_seed();
+    PRGSync private_PRG(&private_seed);
 
     vector<int> lens = {1, 2, 9, 25};
     const int ell = 40;
@@ -59,8 +51,10 @@ int main(int argc, char **argv) {
             }
 
             for (int i = 0; i < len; i++) {
-                public_PRG.gen_random_data(&plain[i], sizeof(ShareValue));
-                plain[i] &= input[i].MASK;
+                if (party_id == 0) {
+                    private_PRG.gen_random_data(&plain[i], sizeof(ShareValue));
+                    plain[i] &= input[i].MASK;
+                }
                 MSSshare_share_from(0, party_id, *netio, &input[i], plain[i]);
             }
 
@@ -105,8 +99,10 @@ int main(int argc, char **argv) {
             MSSshare_preprocess(0, party_id, PRGs, *netio, &data[i]);
         }
         for (int i = 0; i < len; i++) {
-            public_PRG.gen_random_data(&plain[i], sizeof(ShareValue));
-            plain[i] &= data[i].MASK;
+            if (party_id == 0) {
+                private_PRG.gen_random_data(&plain[i], sizeof(ShareValue));
+                plain[i] &= data[i].MASK;
+            }
             MSSshare_share_from(0, party_id, *netio, &data[i], plain[i]);
         }
 
@@ -203,6 +199,39 @@ int main(int argc, char **argv) {
             sort(p3.begin(), p3.end());
             if (s1 != p1 || s2 != p2 || s3 != p3) {
                 cout << "原地同步混洗后多重集校验失败" << endl;
+                return 1;
+            }
+        }
+    }
+
+    // 万级压力测试
+    {
+        const int len = 10000;
+        MSSshare_v input(len, ell);
+        MSSshare_v output(len, ell);
+        vector<ShareValue> plain(len, 0);
+
+        for (int i = 0; i < len; i++) {
+            MSSshare_preprocess(0, party_id, PRGs, *netio, &input[i]);
+            if (party_id == 0) {
+                private_PRG.gen_random_data(&plain[i], sizeof(ShareValue));
+                plain[i] &= input[i].MASK;
+            }
+            MSSshare_share_from(0, party_id, *netio, &input[i], plain[i]);
+        }
+
+        PI_shuffle(party_id, PRGs, *netio, input, output);
+        vector<ShareValue> rec_out(len, 0);
+        for (int i = 0; i < len; i++) {
+            rec_out[i] = MSSshare_recon(party_id, *netio, &output[i]);
+        }
+        if (party_id == 0) {
+            auto sorted_plain = plain;
+            auto sorted_out = rec_out;
+            sort(sorted_plain.begin(), sorted_plain.end());
+            sort(sorted_out.begin(), sorted_out.end());
+            if (sorted_plain != sorted_out) {
+                cout << "万级混洗测试失败" << endl;
                 return 1;
             }
         }

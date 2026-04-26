@@ -32,6 +32,17 @@ int main(int argc, char **argv) {
         netio->recv_data(1, &seed2, sizeof(block));
     }
     vector<PRGSync> PRGs = {PRGSync(&seed1), PRGSync(&seed2)};
+    block private_seed = gen_seed();
+    PRGSync private_PRG(&private_seed);
+    block public_seed;
+    if (party_id == 0) {
+        public_seed = gen_seed();
+        netio->send_data(1, &public_seed, sizeof(block));
+        netio->send_data(2, &public_seed, sizeof(block));
+    } else {
+        netio->recv_data(0, &public_seed, sizeof(block));
+    }
+    PRGSync public_PRG(&public_seed);
 
     // 1) MSSshare_permutation recon 测试
     {
@@ -40,12 +51,7 @@ int main(int argc, char **argv) {
         MSSshare_permutation perm_share(len, ell);
         vector<ShareValue> perm_plain(len, 0);
         if (party_id == 0) {
-            vector<int> p(len);
-            for (int i = 0; i < len; i++) {
-                p[i] = i;
-            }
-            std::swap(p[1], p[7]);
-            std::swap(p[2], p[9]);
+            auto p = gen_random_permutation(len, private_PRG);
             for (int i = 0; i < len; i++) {
                 perm_plain[i] = p[i];
             }
@@ -68,12 +74,7 @@ int main(int argc, char **argv) {
         const int ell = 8;
         ADDshare_permutation<> perm_share(len, ell);
         vector<ShareValue> perm_plain(len, 0);
-        vector<int> p(len);
-        for (int i = 0; i < len; i++) {
-            p[i] = i;
-        }
-        std::swap(p[0], p[8]);
-        std::swap(p[3], p[4]);
+        auto p = gen_random_permutation(len, public_PRG);
         for (int i = 0; i < len; i++) {
             perm_plain[i] = p[i];
         }
@@ -101,18 +102,11 @@ int main(int argc, char **argv) {
             vector<ShareValue> perm_plain(len, 0);
             vector<ShareValue> data_plain(len, 0);
             if (party_id == 0) {
-                vector<int> p(len);
-                for (int i = 0; i < len; i++) {
-                    p[i] = i;
-                }
-                // 简单的轮次扰动，避免总是同一个排列
-                for (int i = 0; i < len; i++) {
-                    int j = (i * 7 + round * 3 + 11) % len;
-                    std::swap(p[i], p[j]);
-                }
+                auto p = gen_random_permutation(len, private_PRG);
                 for (int i = 0; i < len; i++) {
                     perm_plain[i] = p[i];
-                    data_plain[i] = (ShareValue(1000 + round) * (i + 3) + 77) & data_share[i].MASK;
+                    private_PRG.gen_random_data(&data_plain[i], sizeof(ShareValue));
+                    data_plain[i] &= data_share[i].MASK;
                 }
             }
 
@@ -159,17 +153,11 @@ int main(int argc, char **argv) {
         vector<ShareValue> perm_plain(len, 0), data_plain(len, 0);
 
         if (party_id == 0) {
-            vector<int> p(len);
-            for (int i = 0; i < len; i++) {
-                p[i] = i;
-            }
-            for (int i = 0; i < len; i++) {
-                int j = (i * 5 + 3) % len;
-                std::swap(p[i], p[j]);
-            }
+            auto p = gen_random_permutation(len, private_PRG);
             for (int i = 0; i < len; i++) {
                 perm_plain[i] = p[i];
-                data_plain[i] = (ShareValue(9999) * (i + 1) + 123) & data_share[i].MASK;
+                private_PRG.gen_random_data(&data_plain[i], sizeof(ShareValue));
+                data_plain[i] &= data_share[i].MASK;
             }
         }
 
@@ -198,6 +186,54 @@ int main(int argc, char **argv) {
             }
             if (rec != expect) {
                 cout << "PI_secure_permutation in-place failed" << endl;
+                return 1;
+            }
+        }
+    }
+
+    // 5) 万级压力测试
+    {
+        const int len = 10000;
+        const int perm_ell = 40;
+        const int data_ell = 40;
+        MSSshare_permutation perm_share(len, perm_ell);
+        MSSshare_v data_share(len, data_ell);
+        MSSshare_v out_share(len, data_ell);
+        vector<ShareValue> perm_plain(len, 0), data_plain(len, 0);
+
+        if (party_id == 0) {
+            auto p = gen_random_permutation(len, private_PRG);
+            for (int i = 0; i < len; i++) {
+                perm_plain[i] = p[i];
+                private_PRG.gen_random_data(&data_plain[i], sizeof(ShareValue));
+                data_plain[i] &= data_share[i].MASK;
+            }
+        }
+
+        for (int i = 0; i < len; i++) {
+            MSSshare_preprocess(0, party_id, PRGs, *netio, &perm_share[i]);
+            MSSshare_preprocess(0, party_id, PRGs, *netio, &data_share[i]);
+            MSSshare_share_from(0, party_id, *netio, &perm_share[i], perm_plain[i]);
+            MSSshare_share_from(0, party_id, *netio, &data_share[i], data_plain[i]);
+        }
+
+        PI_secure_permutation(party_id, PRGs, *netio, perm_share, data_share, out_share);
+        vector<ShareValue> rec(len, 0);
+        for (int i = 0; i < len; i++) {
+            rec[i] = MSSshare_recon(party_id, *netio, &out_share[i]);
+        }
+        if (party_id == 0) {
+            vector<int> perm_int(len);
+            for (int i = 0; i < len; i++) {
+                perm_int[i] = (int)perm_plain[i];
+            }
+            auto inv_perm = inv_permutation(perm_int);
+            vector<ShareValue> expect(len, 0);
+            for (int i = 0; i < len; i++) {
+                expect[i] = data_plain[inv_perm[i]];
+            }
+            if (rec != expect) {
+                cout << "PI_secure_permutation large case failed" << endl;
                 return 1;
             }
         }

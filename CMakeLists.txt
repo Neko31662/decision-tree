@@ -76,6 +76,9 @@ add_test_target(shuffle_test)
 # Secure Permutaion 协议测试
 add_test_target(secure_permutaion_test)
 
+# OVE 协议测试
+add_test_target(ove_test)
+
 # 如果有其他测试文件，可以按相同模式添加
 # add_executable(otherTest
 #     ${COMMON_SOURCES}
