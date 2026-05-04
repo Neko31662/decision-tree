@@ -82,6 +82,9 @@ add_test_target(secure_permutaion_test)
 # OVE 协议测试
 add_test_target(ove_test)
 
+# Strawman 协议测试
+add_test_target(strawman_test)
+
 # 明文决策树基础测试（单进程）
 add_executable(plain_tree_test
     src/test/plain_tree_test.cpp

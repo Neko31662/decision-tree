@@ -2,6 +2,7 @@
 
 #include "config/config.h"
 #include "utils/logs.h"
+#include <functional>
 #include <vector>
 
 class plain_tree {
@@ -11,6 +12,10 @@ class plain_tree {
 
     // 根节点所用的特征索引 alpha
     ShareValue alpha = 0;
+#ifdef DEBUG_MODE
+    // 是否已执行prepare（用于区分prepare前后的树）
+    bool prepared = false;
+#endif
 
     // 节点字段向量：N_i = (t_i, L_i, R_i, L'_i, R'_i)
     std::vector<ShareValue> t;
@@ -84,6 +89,15 @@ class plain_tree {
      * @param x: 明文特征向量
      */
     ShareValue evaluation(const std::vector<ShareValue> &x) const;
+
+    /* 对明文树执行prepare：叶子阈值差分化 + 追加dummy链
+     * 说明：
+     * 1) 按给定协议生成d-2个dummy节点并追加到树尾
+     * 2) 将真实叶子改写为 (t_e - 路径和, m, m, n, n)
+     * 3) 时间复杂度O(树大小)
+     * @param feature_num: 特征数n；若<=0则从当前树中自动推断
+     */
+    void prepare(int feature_num = -1);
 };
 
 #include "protocol/tree.tpp"
