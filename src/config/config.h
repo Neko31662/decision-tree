@@ -8,7 +8,9 @@ using boost::multiprecision::uint128_t;
 using boost::multiprecision::uint256_t;
 
 #define LOCALHOST
-// #define DEBUG_MODE
+#define DEBUG_MODE
+#define USE_DICF
+// #define TREE_COMM_PROFILE
 #define __MORE_FLUSH
 inline const char *IP[] = {"127.0.0.1", "127.0.0.1", "127.0.0.1"};
 

@@ -112,6 +112,15 @@ inline void open_share_to_party(const int party_id, const int target_id, NetIOMP
     }
 }
 
+#ifdef TREE_COMM_PROFILE
+/* 打印某阶段本地通信量（后处理时可按同名阶段汇总三方） */
+inline void print_comm_stage_local_bytes(const int party_id, const char *stage_name,
+                                         uint64_t local_bytes) {
+    std::cout << "[TREE_COMM_PROFILE][P" << party_id << "] " << stage_name << " : " << local_bytes
+              << " bytes" << std::endl;
+}
+#endif
+
 } // namespace pi_tree_protocol_detail
 
 void PI_tree_protocol_preprocess(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &netio,
@@ -144,6 +153,16 @@ void PI_tree_protocol_preprocess(const int party_id, std::vector<PRGSync> &PRGs,
         error("PI_tree_protocol_preprocess has already been called on this object");
     }
     intermediate.has_preprocess = true;
+#endif
+
+#ifdef TREE_COMM_PROFILE
+    uint64_t comm_prev = (uint64_t)netio.count();
+    auto prof_stage = [&](const char *name) {
+        uint64_t comm_now = (uint64_t)netio.count();
+        uint64_t delta = comm_now - comm_prev;
+        comm_prev = comm_now;
+        pi_tree_protocol_detail::print_comm_stage_local_bytes(party_id, name, delta);
+    };
 #endif
 
     ShareValue mask = pi_tree_protocol_detail::mask_of_ell(ell);
@@ -299,12 +318,18 @@ void PI_tree_protocol_preprocess(const int party_id, std::vector<PRGSync> &PRGs,
         ShareValue vs = (party_id == s_id) ? (ShareValue)sigma_int[i] : 0;
         MSSshare_share_from(s_id, party_id, netio, &sh_sigma[i], vs);
     }
+#ifdef TREE_COMM_PROFILE
+    prof_stage("preprocess.setup_share_model");
+#endif
 
     // Model Shuffle 1: 生成pi,pi'
     MSSshare_permutation pi_perm(m, ell);
     MSSshare_permutation pi_p_perm(n, ell);
     PI_pergen(party_id, PRGs, netio, m, pi_perm, ell);
     PI_pergen(party_id, PRGs, netio, n, pi_p_perm, ell);
+#ifdef TREE_COMM_PROFILE
+    prof_stage("preprocess.modelshuffle.pergen_pi_pi'");
+#endif
 
     // F'_pergen：仅向C公开pi'
     std::vector<int> opened_pi_p(n, 0);
@@ -316,6 +341,9 @@ void PI_tree_protocol_preprocess(const int party_id, std::vector<PRGSync> &PRGs,
             opened_pi_p[i] = (int)out;
         }
     }
+#ifdef TREE_COMM_PROFILE
+    prof_stage("preprocess.modelshuffle.open_pi'_to_C");
+#endif
 #ifdef DEBUG_MODE
     if (party_id == c_id && !pi_tree_protocol_detail::is_perm_0_to_n_1(opened_pi_p, n)) {
         error("PI_tree_protocol_preprocess: opened pi' for client is not permutation");
@@ -356,6 +384,9 @@ void PI_tree_protocol_preprocess(const int party_id, std::vector<PRGSync> &PRGs,
     MSSshare_v delta_after(long_len, ell), delta_p_after(long_len, ell);
     PI_secure_permutation(party_id, PRGs, netio, zeta_perm, delta, delta_after);
     PI_secure_permutation(party_id, PRGs, netio, zeta_p_perm, delta_p, delta_p_after);
+#ifdef TREE_COMM_PROFILE
+    prof_stage("preprocess.modelshuffle.secure_perm_zeta");
+#endif
     for (int i = 1; i < long_len; i++) {
         delta_after[i] = delta_after[i - 1] + delta_after[i];
         delta_p_after[i] = delta_p_after[i - 1] + delta_p_after[i];
@@ -363,6 +394,9 @@ void PI_tree_protocol_preprocess(const int party_id, std::vector<PRGSync> &PRGs,
 
     // Model Shuffle 5: 公开I0
     ShareValue I0 = MSSshare_recon(party_id, netio, &delta_after[0]);
+#ifdef TREE_COMM_PROFILE
+    prof_stage("preprocess.modelshuffle.open_I0");
+#endif
     MSSshare_v delta_cut(two_m, ell);
     for (int i = 0; i < two_m; i++) {
         delta_cut[i] = delta_after[i + 1];
@@ -375,6 +409,9 @@ void PI_tree_protocol_preprocess(const int party_id, std::vector<PRGSync> &PRGs,
     MSSshare_v hat_pi(two_m, ell), hat_pi_p(long_len, ell);
     PI_secure_permutation(party_id, PRGs, netio, sigma_perm, delta_cut, hat_pi);
     PI_secure_permutation(party_id, PRGs, netio, sigma_p_perm, delta_p_after, hat_pi_p);
+#ifdef TREE_COMM_PROFILE
+    prof_stage("preprocess.modelshuffle.secure_perm_sigma");
+#endif
 
     // Model Shuffle 7~8: 组装N*并用pi做整体打乱
     MSSshare_v node_t(m, ell), node_L(m, ell), node_R(m, ell), node_Lp(m, ell), node_Rp(m, ell);
@@ -392,9 +429,15 @@ void PI_tree_protocol_preprocess(const int party_id, std::vector<PRGSync> &PRGs,
     PI_secure_permutation(party_id, PRGs, netio, pi_perm, node_R, R_perm);
     PI_secure_permutation(party_id, PRGs, netio, pi_perm, node_Lp, Lp_perm);
     PI_secure_permutation(party_id, PRGs, netio, pi_perm, node_Rp, Rp_perm);
+#ifdef TREE_COMM_PROFILE
+    prof_stage("preprocess.modelshuffle.secure_perm_nodes_by_pi");
+#endif
 
     // Model Shuffle 6(特征末位): 公开I1
     ShareValue I1 = MSSshare_recon(party_id, netio, &hat_pi_p[two_m]);
+#ifdef TREE_COMM_PROFILE
+    prof_stage("preprocess.modelshuffle.open_I1");
+#endif
 
 #ifdef DEBUG_MODE
     if (I0 >= (ShareValue)m || I1 >= (ShareValue)n) {
@@ -423,6 +466,9 @@ void PI_tree_protocol_preprocess(const int party_id, std::vector<PRGSync> &PRGs,
         ShareValue xv = (party_id == c_id) ? x_perm_plain[i] : 0;
         MSSshare_share_from(c_id, party_id, netio, &sh_x[i], xv);
     }
+#ifdef TREE_COMM_PROFILE
+    prof_stage("preprocess.share_client_x");
+#endif
 
     intermediate.m = m;
     intermediate.n = n;
@@ -441,6 +487,15 @@ void PI_tree_protocol_preprocess(const int party_id, std::vector<PRGSync> &PRGs,
     }
     intermediate.cotp_inters.clear();
     intermediate.cotp_inters.reserve(rounds);
+#ifdef USE_DICF
+    for (int iter = 0; iter < rounds; iter++) {
+        intermediate.cotp_inters.emplace_back(ell);
+        PI_cotp_DICF_preprocess(party_id, PRGs, netio, intermediate.cotp_inters.back());
+    }
+#ifdef TREE_COMM_PROFILE
+    prof_stage("preprocess.cotp_dicf_preprocess_all_rounds");
+#endif
+#else
     std::vector<PI_cotp_intermediate *> cotp_inter_ptrs;
     cotp_inter_ptrs.reserve(rounds);
     for (int iter = 0; iter < rounds; iter++) {
@@ -450,8 +505,15 @@ void PI_tree_protocol_preprocess(const int party_id, std::vector<PRGSync> &PRGs,
     if (!cotp_inter_ptrs.empty()) {
         PI_cotp_preprocess_vec(party_id, PRGs, netio, cotp_inter_ptrs);
     }
+#ifdef TREE_COMM_PROFILE
+    prof_stage("preprocess.cotp_signmult_preprocess_all_rounds");
+#endif
+#endif
 
     netio.send_stored_data_all();
+#ifdef TREE_COMM_PROFILE
+    prof_stage("preprocess.flush_stored_data");
+#endif
 }
 
 void PI_tree_protocol(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &netio,
@@ -474,6 +536,16 @@ void PI_tree_protocol(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &n
         !intermediate.Lp_perm || !intermediate.Rp_perm || !intermediate.sh_x) {
         error("PI_tree_protocol: shared inputs are not initialized");
     }
+#endif
+
+#ifdef TREE_COMM_PROFILE
+    uint64_t comm_prev = (uint64_t)netio.count();
+    auto prof_stage = [&](const char *name) {
+        uint64_t comm_now = (uint64_t)netio.count();
+        uint64_t delta = comm_now - comm_prev;
+        comm_prev = comm_now;
+        pi_tree_protocol_detail::print_comm_stage_local_bytes(party_id, name, delta);
+    };
 #endif
 
     MSSshare_v &t_perm = *intermediate.t_perm;
@@ -522,9 +594,18 @@ void PI_tree_protocol(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &n
         // COTP语义为(x>=t)?L:R；树路由左分支条件为x<t，因此左右输入对调
         std::vector<MSSshare *> left_vec = {&R_perm[node_idx], &Rp_perm[node_idx]};
         std::vector<MSSshare *> right_vec = {&L_perm[node_idx], &Lp_perm[node_idx]};
+#ifdef USE_DICF
+        std::vector<ShareValue> opened = PI_cotp_DICF_vec(
+            party_id, PRGs, netio, intermediate.cotp_inters[iter], &sh_x[feat_idx],
+            &t_perm[node_idx], left_vec, right_vec);
+#else
         std::vector<ShareValue> opened =
             PI_cotp(party_id, PRGs, netio, intermediate.cotp_inters[iter], &sh_x[feat_idx],
                     &t_perm[node_idx], left_vec, right_vec);
+#endif
+#ifdef TREE_COMM_PROFILE
+        prof_stage("online.each_round_cotp");
+#endif
 
 #ifdef DEBUG_MODE
         if ((int)opened.size() != 2) {
@@ -549,4 +630,7 @@ void PI_tree_protocol(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &n
     res.has_preprocess = true;
 #endif
     output_r = res;
+#ifdef TREE_COMM_PROFILE
+    prof_stage("online.total_before_output_assign");
+#endif
 }

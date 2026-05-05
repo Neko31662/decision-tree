@@ -70,6 +70,9 @@ add_test_target(sign_mult_test)
 # COTP 协议测试
 add_test_target(cotp_test)
 
+# COTP_DICF 协议测试
+add_test_target(cotp_DICF_test)
+
 # Shuffle 协议测试
 add_test_target(shuffle_test)
 
@@ -90,6 +93,40 @@ add_test_target(tree_protocol_test)
 
 # 决策树协议速度测试（按数据集统计preprocess/online耗时）
 add_test_target(tree_speed_test)
+
+# DICF（基于FSS-DCF）测试
+add_executable(dicf_test
+    ${COMMON_SOURCES}
+    src/test/dicf_test.cpp
+)
+setup_target(dicf_test)
+target_include_directories(dicf_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/fss/include
+    /usr/local/cuda/include
+)
+target_compile_features(dicf_test PRIVATE cxx_std_20)
+target_link_libraries(dicf_test pthread gmp OpenMP::OpenMP_CXX crypto)
+
+target_include_directories(cotp_DICF_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/fss/include
+    /usr/local/cuda/include
+)
+target_compile_features(cotp_DICF_test PRIVATE cxx_std_20)
+target_link_libraries(cotp_DICF_test crypto)
+
+target_include_directories(tree_protocol_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/fss/include
+    /usr/local/cuda/include
+)
+target_compile_features(tree_protocol_test PRIVATE cxx_std_20)
+target_link_libraries(tree_protocol_test crypto)
+
+target_include_directories(tree_speed_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/fss/include
+    /usr/local/cuda/include
+)
+target_compile_features(tree_speed_test PRIVATE cxx_std_20)
+target_link_libraries(tree_speed_test crypto)
 
 # 明文决策树基础测试（单进程）
 add_executable(plain_tree_test

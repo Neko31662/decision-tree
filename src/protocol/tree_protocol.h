@@ -1,6 +1,12 @@
 #pragma once
 
+#ifdef USE_DICF
+#include "protocol/cotp_DICF.h"
+using PI_tree_cotp_intermediate = PI_cotp_DICF_intermediate;
+#else
 #include "protocol/cotp.h"
+using PI_tree_cotp_intermediate = PI_cotp_intermediate;
+#endif
 #include "protocol/per_gen.h"
 #include "protocol/secure_permutaion.h"
 #include "protocol/tree.h"
@@ -22,7 +28,7 @@ struct PI_tree_protocol_intermediate {
     std::unique_ptr<MSSshare_v> Lp_perm;
     std::unique_ptr<MSSshare_v> Rp_perm;
     std::unique_ptr<MSSshare_v> sh_x;
-    std::vector<PI_cotp_intermediate> cotp_inters;
+    std::vector<PI_tree_cotp_intermediate> cotp_inters;
 #ifdef DEBUG_MODE
     bool has_preprocess = false;
 #endif

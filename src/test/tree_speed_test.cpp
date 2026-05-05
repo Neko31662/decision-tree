@@ -22,6 +22,8 @@ struct SpeedRow {
     string protocol;
     double preprocess_ms = 0.0;
     double online_ms = 0.0;
+    uint64_t preprocess_bytes = 0;
+    uint64_t online_bytes = 0;
 };
 
 /* 列出目录下全部数据集文件（按文件名排序） */
@@ -144,6 +146,18 @@ static double collect_max_time_ms(int party_id, NetIOMP &netio, double local_ms)
     return local_ms;
 }
 
+/* 汇总三方通信量（字节总和）并在P0返回 */
+static uint64_t collect_sum_bytes(int party_id, NetIOMP &netio, uint64_t local_bytes) {
+    if (party_id == 0) {
+        uint64_t b1 = 0, b2 = 0;
+        netio.recv_data(1, &b1, sizeof(uint64_t));
+        netio.recv_data(2, &b2, sizeof(uint64_t));
+        return local_bytes + b1 + b2;
+    }
+    netio.send_data(0, &local_bytes, sizeof(uint64_t));
+    return local_bytes;
+}
+
 int main(int argc, char **argv) {
     int party_id = atoi(argv[1]);
     init_share_party_refs(party_id);
@@ -207,22 +221,29 @@ int main(int argc, char **argv) {
             MSSshare out(ell);
             PI_strawman_intermediate inter(ell, feature_num, d);
 
+            uint64_t bytes0 = (uint64_t)netio->count();
             auto t0 = std::chrono::steady_clock::now();
             PI_strawman_preprocess(party_id, PRGs, *netio, inter, tree_ptr, x_ptr);
             auto t1 = std::chrono::steady_clock::now();
+            uint64_t bytes1 = (uint64_t)netio->count();
             PI_strawman(party_id, PRGs, *netio, inter, out);
             auto t2 = std::chrono::steady_clock::now();
+            uint64_t bytes2 = (uint64_t)netio->count();
 
             double pre_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
             double on_ms = std::chrono::duration<double, std::milli>(t2 - t1).count();
+            uint64_t pre_bytes = bytes1 - bytes0;
+            uint64_t on_bytes = bytes2 - bytes1;
             double pre_max = collect_max_time_ms(party_id, *netio, pre_ms);
             double on_max = collect_max_time_ms(party_id, *netio, on_ms);
+            uint64_t pre_sum = collect_sum_bytes(party_id, *netio, pre_bytes);
+            uint64_t on_sum = collect_sum_bytes(party_id, *netio, on_bytes);
 
             // 不计入online时间，只用于保障输出可重构
             (void)MSSshare_recon(party_id, *netio, &out);
 
             if (party_id == 0) {
-                rows.push_back({dataset_name, "strawman", pre_max, on_max});
+                rows.push_back({dataset_name, "strawman", pre_max, on_max, pre_sum, on_sum});
             }
         }
 
@@ -237,21 +258,28 @@ int main(int argc, char **argv) {
             MSSshare out(ell);
             PI_tree_protocol_intermediate inter(ell, feature_num, d);
 
+            uint64_t bytes0 = (uint64_t)netio->count();
             auto t0 = std::chrono::steady_clock::now();
             PI_tree_protocol_preprocess(party_id, PRGs, *netio, inter, tree_ptr, x_ptr);
             auto t1 = std::chrono::steady_clock::now();
+            uint64_t bytes1 = (uint64_t)netio->count();
             PI_tree_protocol(party_id, PRGs, *netio, inter, out);
             auto t2 = std::chrono::steady_clock::now();
+            uint64_t bytes2 = (uint64_t)netio->count();
 
             double pre_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
             double on_ms = std::chrono::duration<double, std::milli>(t2 - t1).count();
+            uint64_t pre_bytes = bytes1 - bytes0;
+            uint64_t on_bytes = bytes2 - bytes1;
             double pre_max = collect_max_time_ms(party_id, *netio, pre_ms);
             double on_max = collect_max_time_ms(party_id, *netio, on_ms);
+            uint64_t pre_sum = collect_sum_bytes(party_id, *netio, pre_bytes);
+            uint64_t on_sum = collect_sum_bytes(party_id, *netio, on_bytes);
 
             (void)MSSshare_recon(party_id, *netio, &out);
 
             if (party_id == 0) {
-                rows.push_back({dataset_name, "tree", pre_max, on_max});
+                rows.push_back({dataset_name, "tree", pre_max, on_max, pre_sum, on_sum});
             }
         }
     }
@@ -260,15 +288,18 @@ int main(int argc, char **argv) {
         cout << "\n================ Tree Speed Summary ================\n";
         cout << left << setw(16) << "Dataset" << setw(12) << "Protocol" << setw(16)
              << "Preprocess(ms)" << setw(14) << "Online(ms)" << setw(12) << "Total(ms)"
-             << "\n";
-        cout << string(70, '-') << "\n";
+             << setw(16) << "Pre(Byte,sum)" << setw(16) << "On(Byte,sum)" << setw(16)
+             << "Comm(Byte)" << "\n";
+        cout << string(96, '-') << "\n";
         for (const auto &r : rows) {
             double total = r.preprocess_ms + r.online_ms;
+            uint64_t comm_bytes = r.preprocess_bytes + r.online_bytes;
             cout << left << setw(16) << r.dataset << setw(12) << r.protocol << setw(16) << fixed
                  << setprecision(3) << r.preprocess_ms << setw(14) << r.online_ms << setw(12)
-                 << total << "\n";
+                 << total << setw(16) << r.preprocess_bytes << setw(16) << r.online_bytes
+                 << setw(16) << comm_bytes << "\n";
         }
-        cout << string(70, '=') << "\n";
+        cout << string(96, '=') << "\n";
     }
 
     delete netio;
