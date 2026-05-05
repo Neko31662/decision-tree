@@ -85,6 +85,12 @@ add_test_target(ove_test)
 # Strawman 协议测试
 add_test_target(strawman_test)
 
+# Tree Protocol 主协议测试
+add_test_target(tree_protocol_test)
+
+# 决策树协议速度测试（按数据集统计preprocess/online耗时）
+add_test_target(tree_speed_test)
+
 # 明文决策树基础测试（单进程）
 add_executable(plain_tree_test
     src/test/plain_tree_test.cpp

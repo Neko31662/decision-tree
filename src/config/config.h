@@ -15,7 +15,7 @@ inline const char *IP[] = {"127.0.0.1", "127.0.0.1", "127.0.0.1"};
 #ifdef FORCE_SHARE_VALUE_128
 typedef __uint128_t ShareValue;
 #else
-typedef uint64_t ShareValue;
+typedef uint32_t ShareValue;
 #endif
 inline const int ShareValue_BitLength = sizeof(ShareValue) * 8;
 

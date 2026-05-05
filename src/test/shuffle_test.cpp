@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
     PRGSync private_PRG(&private_seed);
 
     vector<int> lens = {1, 2, 9, 25};
-    const int ell = 40;
+    const int ell = 31;
 
     for (int len : lens) {
         bool seen_non_identity = false;

@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
 
     // mod 2^l，非向量
     for (int test_i = 0; test_i < test_nums; test_i++) {
-        const int ell = 60;
+        const int ell = 31;
         const int len = 10;
         // circuit: (a+b) * (c*d) + (e*f) + g - 10
         ShareValue secret[len];
@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
 
     // mod 2^l，向量
     for (int test_i = 0; test_i < max(1, test_nums / vec_len); test_i++) {
-        const int ell = 40;
+        const int ell = 31;
         ShareValue secret_s1[vec_len], secret_s2[vec_len];
         MSSshare_v s1(vec_len, ell);
         MSSshare_v s2(vec_len, ell);
@@ -194,7 +194,7 @@ int main(int argc, char **argv) {
 
     // mod p，非向量
     for (int test_i = 0; test_i < test_nums; test_i++) {
-        const int p = 169316931;
+        const int p = 12289;
         const int len = 10;
         // circuit: (a+b) * (c*d) + (e*f) + g - 10
         ShareValue secret[len];
@@ -273,7 +273,7 @@ int main(int argc, char **argv) {
 
     // mod p，向量
     for (int test_i = 0; test_i < max(1, test_nums / vec_len); test_i++) {
-        const ShareValue p = 169316931;
+        const ShareValue p = 12289;
         ShareValue secret_s1[vec_len], secret_s2[vec_len];
         MSSshare_p_v s1(vec_len, p);
         MSSshare_p_v s2(vec_len, p);

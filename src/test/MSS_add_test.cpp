@@ -43,7 +43,7 @@ int main(int argc, char **argv) {
     for (int test_round = 0; test_round < 2; test_round++) {
         // mod 2^l
         {
-            const int ell = 60;
+            const int ell = 31;
             // shares allocation
             std::vector<MSSshare> s(len, MSSshare(ell));
             MSSshare s_add(ell);
@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
 
         // mod p
         {
-            const ShareValue p = 67676767;
+            const ShareValue p = 12289;
             // shares allocation
             std::vector<MSSshare_p> s(len, p);
             MSSshare_p s_add(p);

@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
     }
     vector<PRGSync> PRGs = {PRGSync(&seed1), PRGSync(&seed2)};
 
-    const int ell = 40;
+    const int ell = 31;
     vector<plain_tree> trees = {build_tree_a(), build_tree_b()};
     vector<int> depths = {3, 4};
     vector<vector<vector<ShareValue>>> x_cases = {
@@ -82,16 +82,20 @@ int main(int argc, char **argv) {
         plain_tree tree = trees[ti];
         int feature_num = (int)x_cases[ti][0].size();
         int d = depths[ti];
+        plain_tree prepared_tree = tree;
+        prepared_tree.prepare(feature_num);
 
         for (int k = 0; k < (int)x_cases[ti].size(); k++) {
             const vector<ShareValue> &x = x_cases[ti][k];
             ShareValue expect = tree.evaluation(x);
 
-            const plain_tree *tree_ptr = (party_id == 0) ? &tree : nullptr;
+            const plain_tree *tree_ptr = (party_id == 0) ? &prepared_tree : nullptr;
             const vector<ShareValue> *x_ptr = (party_id == 1) ? &x : nullptr;
 
             MSSshare out(ell);
-            PI_strawman(party_id, PRGs, *netio, tree_ptr, x_ptr, feature_num, d, out, ell);
+            PI_strawman_intermediate inter(ell, feature_num, d);
+            PI_strawman_preprocess(party_id, PRGs, *netio, inter, tree_ptr, x_ptr);
+            PI_strawman(party_id, PRGs, *netio, inter, out);
             ShareValue rec = MSSshare_recon(party_id, *netio, &out);
 
             if (party_id == 0 && rec != expect) {

@@ -5,14 +5,14 @@ INTERFACE="lo"
 
 # 设置 LAN 环境
 set_lan() {
-    echo "Setting LAN environment (256Mbps bandwidth, adding 2ms RTT)..."
-    sudo tc qdisc add dev $INTERFACE root netem rate 256mbit delay 1ms
+    echo "Setting LAN environment (10Gbps bandwidth, adding 0.001ms RTT)..."
+    sudo tc qdisc add dev $INTERFACE root netem rate 10gbit delay 0.001ms
 }
 
 # 设置 WAN 环境
 set_wan() {
-    echo "Setting WAN environment (100Mbps bandwidth, 20ms RTT)..."
-    sudo tc qdisc add dev $INTERFACE root netem rate 100mbit delay 10ms
+    echo "Setting WAN environment (100Mbps bandwidth, 6ms RTT)..."
+    sudo tc qdisc add dev $INTERFACE root netem rate 100mbit delay 3ms
 }
 
 # 恢复网络状态

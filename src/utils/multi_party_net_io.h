@@ -78,13 +78,22 @@ class NetIOMP {
     }
 
     ~NetIOMP() {}
-    void send_data(int dst, const void *data, size_t len) {
+    void send_data_raw(int dst, const void *data, size_t len) {
         if (dst != party) {
             if (party < dst)
                 ios1[dst]->send_data(data, len);
             else
                 ios2[dst]->send_data(data, len);
             sent[dst] = true;
+        }
+    }
+    void send_data(int dst, const void *data, size_t len) {
+        if (dst != party) {
+            if (stored_data[dst].size() > 0) {
+                send_data_raw(dst, stored_data[dst].data(), stored_data[dst].size());
+                stored_data[dst].clear();
+            }
+            send_data_raw(dst, data, len);
         }
 #ifdef __MORE_FLUSH
         flush(dst);
@@ -98,8 +107,11 @@ class NetIOMP {
     void send_stored_data(int dst) {
         if (dst != party) {
             if (stored_data[dst].size() > 0) {
-                send_data(dst, stored_data[dst].data(), stored_data[dst].size());
+                send_data_raw(dst, stored_data[dst].data(), stored_data[dst].size());
                 stored_data[dst].clear();
+#ifdef __MORE_FLUSH
+                flush(dst);
+#endif
             }
         }
     }

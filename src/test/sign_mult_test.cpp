@@ -6,7 +6,7 @@
 const int BASE_PORT = 12345;
 const int NUM_PARTIES = 3;
 const int test_nums = 240;
-const int ell = 40;
+const int ell = 31;
 
 using namespace std;
 

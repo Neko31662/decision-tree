@@ -8,7 +8,7 @@
 const int BASE_PORT = 12345;
 const int NUM_PARTIES = 3;
 const int test_nums = 1000;
-const int ell = 63;
+const int ell = 31;
 const ShareValue k = 67676;
 
 using namespace std;

@@ -9,7 +9,7 @@
 using namespace std;
 const int BASE_PORT = 12345;
 const int NUM_PARTIES = 3;
-const int ell = 50;
+const int ell = 31;
 
 const int len = 10;
 ShareValue secret[10] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
@@ -112,7 +112,7 @@ int main(int argc, char **argv) {
 
     // 非向量部分，mod p
     {
-        const ShareValue p = 67676767;
+        const ShareValue p = 12289;
         vector<ADDshare_p> s(len, p);
         for (int i = 0; i < len; i++) {
             ADDshare_p_share_from(i % 3, party_id, PRGs, *netio, &s[i], secret[i]);
@@ -144,7 +144,7 @@ int main(int argc, char **argv) {
 
     // 向量部分，mod 2^ell
     {
-        const ShareValue p = 67676767;
+        const ShareValue p = 12289;
         ADDshare_p_v s1_vec(len - 1, p);
         ADDshare_p_v s2_vec(len - 1, p);
         ADDshare_p_mul_res_v res_vec(len - 1, p);

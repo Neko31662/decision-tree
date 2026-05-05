@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
     // 显式指定ell测试
     {
         const int len = 19;
-        const int ell = 40;
+        const int ell = 31;
         MSSshare_permutation perm_share(1, 1);
         PI_pergen(party_id, PRGs, *netio, len, perm_share, ell);
         vector<ShareValue> rec_perm;

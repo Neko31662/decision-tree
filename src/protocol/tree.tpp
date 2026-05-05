@@ -1,3 +1,135 @@
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <fstream>
+#include <limits>
+#include <string>
+#include <unordered_map>
+
+namespace plain_tree_dot_detail {
+
+inline std::string trim_copy(const std::string &s) {
+    size_t l = 0;
+    size_t r = s.size();
+    while (l < r && std::isspace((unsigned char)s[l])) {
+        l++;
+    }
+    while (r > l && std::isspace((unsigned char)s[r - 1])) {
+        r--;
+    }
+    return s.substr(l, r - l);
+}
+
+inline bool parse_first_int(const std::string &s, int &out) {
+    size_t i = 0;
+    while (i < s.size() && !std::isdigit((unsigned char)s[i]) && s[i] != '-') {
+        i++;
+    }
+    if (i >= s.size()) {
+        return false;
+    }
+    size_t j = i + 1;
+    while (j < s.size() && std::isdigit((unsigned char)s[j])) {
+        j++;
+    }
+    try {
+        out = std::stoi(s.substr(i, j - i));
+    } catch (...) {
+        return false;
+    }
+    return true;
+}
+
+inline bool parse_feature_threshold(const std::string &label, int &feat_idx, double &threshold) {
+    size_t p = label.find("X[");
+    if (p == std::string::npos) {
+        return false;
+    }
+    size_t q = label.find(']', p + 2);
+    if (q == std::string::npos) {
+        return false;
+    }
+    size_t le = label.find("<=", q + 1);
+    if (le == std::string::npos) {
+        return false;
+    }
+    std::string feat_str = trim_copy(label.substr(p + 2, q - (p + 2)));
+    std::string thr_str = label.substr(le + 2);
+    size_t end = thr_str.find('\n');
+    if (end != std::string::npos) {
+        thr_str = thr_str.substr(0, end);
+    }
+    thr_str = trim_copy(thr_str);
+    try {
+        feat_idx = std::stoi(feat_str);
+        threshold = std::stod(thr_str);
+    } catch (...) {
+        return false;
+    }
+    return true;
+}
+
+inline bool parse_value_numbers(const std::string &label, std::vector<double> &values,
+                                bool &is_vector_value) {
+    values.clear();
+    is_vector_value = false;
+    size_t p = label.find("value =");
+    if (p == std::string::npos) {
+        return false;
+    }
+    p += 7;
+    while (p < label.size() && std::isspace((unsigned char)label[p])) {
+        p++;
+    }
+    if (p >= label.size()) {
+        return false;
+    }
+
+    if (label[p] == '[') {
+        is_vector_value = true;
+        size_t q = label.find(']', p + 1);
+        if (q == std::string::npos) {
+            return false;
+        }
+        std::string body = label.substr(p + 1, q - (p + 1));
+        std::string cur;
+        for (char ch : body) {
+            if ((ch >= '0' && ch <= '9') || ch == '+' || ch == '-' || ch == '.' || ch == 'e' ||
+                ch == 'E') {
+                cur.push_back(ch);
+            } else if (!cur.empty()) {
+                try {
+                    values.push_back(std::stod(cur));
+                } catch (...) {
+                    return false;
+                }
+                cur.clear();
+            }
+        }
+        if (!cur.empty()) {
+            try {
+                values.push_back(std::stod(cur));
+            } catch (...) {
+                return false;
+            }
+        }
+        return !values.empty();
+    }
+
+    size_t q = p;
+    while (q < label.size() && !std::isspace((unsigned char)label[q])) {
+        q++;
+    }
+    try {
+        values.push_back(std::stod(label.substr(p, q - p)));
+    } catch (...) {
+        return false;
+    }
+    return true;
+}
+
+} // namespace plain_tree_dot_detail
+
 inline plain_tree::plain_tree(int node_num, ShareValue root_alpha) : alpha(root_alpha) {
 #ifdef DEBUG_MODE
     if (node_num < 0) {
@@ -311,4 +443,231 @@ inline void plain_tree::prepare(int feature_num) {
 #ifdef DEBUG_MODE
     prepared = true;
 #endif
+}
+
+inline ShareValue plain_tree::scale_to_share(double value, double scale) {
+#ifdef DEBUG_MODE
+    if (!(scale > 0.0) || !std::isfinite(scale)) {
+        error("plain_tree::scale_to_share: scale must be finite and positive");
+    }
+    if (!std::isfinite(value)) {
+        error("plain_tree::scale_to_share: value must be finite");
+    }
+#endif
+    long double scaled = (long double)value * (long double)scale;
+    long long rounded = (long long)std::llround(scaled);
+    return (ShareValue)rounded;
+}
+
+inline plain_tree plain_tree::load_from_sklearn_dot(const std::string &file_path, double scale,
+                                                    int *feature_num_out) {
+#ifdef DEBUG_MODE
+    if (file_path.empty()) {
+        error("plain_tree::load_from_sklearn_dot: file_path is empty");
+    }
+    if (!(scale > 0.0) || !std::isfinite(scale)) {
+        error("plain_tree::load_from_sklearn_dot: scale must be finite and positive");
+    }
+#endif
+
+    struct ParsedNode {
+        bool exists = false;
+        bool is_internal = false;
+        int feature = -1;
+        double threshold = 0.0;
+        std::vector<double> value_nums;
+        bool value_is_vector = false;
+    };
+    struct ParsedEdge {
+        int left = -1;
+        int right = -1;
+        std::vector<int> unlabeled;
+    };
+
+    std::ifstream fin(file_path);
+    if (!fin.is_open()) {
+        error("plain_tree::load_from_sklearn_dot: cannot open file " + file_path);
+    }
+
+    std::unordered_map<int, ParsedNode> nodes;
+    std::unordered_map<int, ParsedEdge> edges;
+
+    auto parse_node_label = [&](int node_id, const std::string &label) {
+        ParsedNode &pn = nodes[node_id];
+        pn.exists = true;
+
+        int feat = -1;
+        double thr = 0.0;
+        bool is_internal = plain_tree_dot_detail::parse_feature_threshold(label, feat, thr);
+        pn.is_internal = is_internal;
+        if (is_internal) {
+            pn.feature = feat;
+            pn.threshold = thr;
+        }
+
+        std::vector<double> vals;
+        bool is_vec = false;
+        if (plain_tree_dot_detail::parse_value_numbers(label, vals, is_vec)) {
+            pn.value_nums = std::move(vals);
+            pn.value_is_vector = is_vec;
+        }
+    };
+
+    std::string line;
+    while (std::getline(fin, line)) {
+        std::string s = plain_tree_dot_detail::trim_copy(line);
+        if (s.empty()) {
+            continue;
+        }
+
+        // edge: u -> v ...
+        size_t arrow = s.find("->");
+        if (arrow != std::string::npos) {
+            int u = -1, v = -1;
+            if (!plain_tree_dot_detail::parse_first_int(s.substr(0, arrow), u)) {
+                continue;
+            }
+            if (!plain_tree_dot_detail::parse_first_int(s.substr(arrow + 2), v)) {
+                continue;
+            }
+            ParsedEdge &pe = edges[u];
+            bool is_true = (s.find("headlabel=\"True\"") != std::string::npos);
+            bool is_false = (s.find("headlabel=\"False\"") != std::string::npos);
+            if (is_true) {
+                pe.left = v;
+            } else if (is_false) {
+                pe.right = v;
+            } else {
+                pe.unlabeled.push_back(v);
+            }
+            continue;
+        }
+
+        // node: id [label="..."] ;
+        size_t lbl = s.find("[label=\"");
+        if (lbl != std::string::npos) {
+            int node_id = -1;
+            if (!plain_tree_dot_detail::parse_first_int(s.substr(0, lbl), node_id)) {
+                continue;
+            }
+
+            std::string label_buf;
+            std::string chunk = s.substr(lbl + 8);
+            while (true) {
+                size_t end = chunk.find("\"]");
+                if (end != std::string::npos) {
+                    label_buf += chunk.substr(0, end);
+                    break;
+                }
+                label_buf += chunk;
+                label_buf.push_back('\n');
+                if (!std::getline(fin, chunk)) {
+                    break;
+                }
+            }
+
+            parse_node_label(node_id, label_buf);
+            continue;
+        }
+    }
+    fin.close();
+
+    if (nodes.empty()) {
+        error("plain_tree::load_from_sklearn_dot: no nodes parsed from file " + file_path);
+    }
+    if (nodes.find(0) == nodes.end()) {
+        error("plain_tree::load_from_sklearn_dot: root node 0 not found");
+    }
+
+    int max_node_id = -1;
+    for (const auto &kv : nodes) {
+        max_node_id = std::max(max_node_id, kv.first);
+    }
+    plain_tree tree(max_node_id + 1, 0);
+
+    int max_feat_idx = -1;
+    if (nodes[0].is_internal) {
+        tree.alpha = (ShareValue)nodes[0].feature;
+        max_feat_idx = std::max(max_feat_idx, nodes[0].feature);
+    } else {
+        tree.alpha = 0;
+    }
+
+    for (int i = 0; i <= max_node_id; i++) {
+        auto it = nodes.find(i);
+        if (it == nodes.end()) {
+            error("plain_tree::load_from_sklearn_dot: missing node id " + std::to_string(i));
+        }
+        ParsedNode &pn = it->second;
+
+        if (pn.is_internal) {
+            ParsedEdge pe;
+            auto eit = edges.find(i);
+            if (eit != edges.end()) {
+                pe = eit->second;
+            }
+
+            int cur = 0;
+            if (pe.left < 0 && cur < (int)pe.unlabeled.size()) {
+                pe.left = pe.unlabeled[cur++];
+            }
+            if (pe.right < 0 && cur < (int)pe.unlabeled.size()) {
+                pe.right = pe.unlabeled[cur++];
+            }
+#ifdef DEBUG_MODE
+            if (pe.left < 0 || pe.right < 0) {
+                error("plain_tree::load_from_sklearn_dot: internal node missing children at id " +
+                      std::to_string(i));
+            }
+            if (pe.left > max_node_id || pe.right > max_node_id) {
+                error("plain_tree::load_from_sklearn_dot: child index out of range");
+            }
+#endif
+
+            int lf = pn.feature;
+            int rf = pn.feature;
+            auto lit = nodes.find(pe.left);
+            if (lit != nodes.end() && lit->second.is_internal) {
+                lf = lit->second.feature;
+            }
+            auto rit = nodes.find(pe.right);
+            if (rit != nodes.end() && rit->second.is_internal) {
+                rf = rit->second.feature;
+            }
+
+            max_feat_idx = std::max(max_feat_idx, pn.feature);
+            max_feat_idx = std::max(max_feat_idx, lf);
+            max_feat_idx = std::max(max_feat_idx, rf);
+
+            tree.set_node(i, scale_to_share(pn.threshold, scale), (ShareValue)pe.left,
+                          (ShareValue)pe.right, (ShareValue)lf, (ShareValue)rf);
+        } else {
+            ShareValue leaf_label = 0;
+            if (!pn.value_nums.empty()) {
+                if (pn.value_is_vector) {
+                    int best = 0;
+                    double best_v = pn.value_nums[0];
+                    for (int k = 1; k < (int)pn.value_nums.size(); k++) {
+                        if (pn.value_nums[k] > best_v) {
+                            best_v = pn.value_nums[k];
+                            best = k;
+                        }
+                    }
+                    leaf_label = (ShareValue)best;
+                } else {
+                    leaf_label = scale_to_share(pn.value_nums[0], scale);
+                }
+            }
+            tree.set_node(i, leaf_label, INVALID_INDEX, INVALID_INDEX, INVALID_INDEX, INVALID_INDEX);
+        }
+    }
+
+    if (feature_num_out != nullptr) {
+        *feature_num_out = std::max(max_feat_idx + 1, 1);
+    }
+
+#ifdef DEBUG_MODE
+    tree.prepared = false;
+#endif
+    return tree;
 }

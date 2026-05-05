@@ -3,6 +3,7 @@
 #include "config/config.h"
 #include "utils/logs.h"
 #include <functional>
+#include <string>
 #include <vector>
 
 class plain_tree {
@@ -98,6 +99,26 @@ class plain_tree {
      * @param feature_num: 特征数n；若<=0则从当前树中自动推断
      */
     void prepare(int feature_num = -1);
+
+    /* 将浮点数按固定scale转换为ShareValue整数表示
+     * @param value: 待转换浮点值
+     * @param scale: 缩放因子（例如1000表示保留3位小数）
+     */
+    static ShareValue scale_to_share(double value, double scale = 1000.0);
+
+    /* 读取sklearn导出的dot决策树并转换为plain_tree
+     * 语法假设：符合export_graphviz常见格式（节点label中含X[i] <= threshold与value字段）
+     * 转换规则：
+     * 1) 内部节点阈值t按round(threshold * scale)缩放为整数；
+     * 2) 叶子节点若value是向量，则标签取argmax下标；若value是标量，则按scale缩放；
+     * 3) L'/R'由子节点的划分特征索引推导；若子节点为叶子，则退化为当前节点特征索引。
+     *
+     * @param file_path: dot文件路径
+     * @param scale: 浮点转整数缩放因子
+     * @param feature_num_out: 可选输出参数，返回推导出的特征维度（max_feature_index + 1）
+     */
+    static plain_tree load_from_sklearn_dot(const std::string &file_path, double scale = 1000.0,
+                                            int *feature_num_out = nullptr);
 };
 
 #include "protocol/tree.tpp"

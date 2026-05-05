@@ -94,7 +94,7 @@ int main(int argc, char **argv) {
     for (int len : lens) {
         for (int round = 0; round < test_rounds; round++) {
             const int perm_ell = 8;
-            const int data_ell = 40;
+            const int data_ell = 31;
             MSSshare_permutation perm_share(len, perm_ell);
             MSSshare_v data_share(len, data_ell);
             MSSshare_v out_share(len, data_ell);
@@ -146,8 +146,8 @@ int main(int argc, char **argv) {
     // 4) PI_secure_permutation 原地版本测试
     {
         const int len = 17;
-        const int perm_ell = 8;
-        const int data_ell = 40;
+        const int perm_ell = 16;
+        const int data_ell = 31;
         MSSshare_permutation perm_share(len, perm_ell);
         MSSshare_v data_share(len, data_ell);
         vector<ShareValue> perm_plain(len, 0), data_plain(len, 0);
@@ -194,8 +194,8 @@ int main(int argc, char **argv) {
     // 5) 万级压力测试
     {
         const int len = 10000;
-        const int perm_ell = 40;
-        const int data_ell = 40;
+        const int perm_ell = 16;
+        const int data_ell = 31;
         MSSshare_permutation perm_share(len, perm_ell);
         MSSshare_v data_share(len, data_ell);
         MSSshare_v out_share(len, data_ell);

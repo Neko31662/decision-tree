@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
     block private_seed = gen_seed();
     PRGSync private_PRG(&private_seed);
 
-    const int ell = 40;
+    const int ell = 31;
     vector<int> lens = {1, 2, 7, 15};
 
     for (int n : lens) {
