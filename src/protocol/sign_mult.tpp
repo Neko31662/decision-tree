@@ -12,117 +12,161 @@ void PI_sign_mult_preprocess(const int party_id, std::vector<PRGSync> &PRGs, Net
                              PI_sign_mult_intermediate &intermediate, MSSshare *input_x,
                              std::vector<MSSshare *> &input_y_vec, MSSshare *output_z,
                              std::vector<MSSshare *> &output_w_vec) {
-    int ell = intermediate.ell;
-    int y_size = input_y_vec.size();
+    std::vector<PI_sign_mult_intermediate *> intermediate_vec = {&intermediate};
+    std::vector<MSSshare *> input_x_vec = {input_x};
+    std::vector<std::vector<MSSshare *>> input_y_vec_vec = {input_y_vec};
+    std::vector<MSSshare *> output_z_vec = {output_z};
+    std::vector<std::vector<MSSshare *>> output_w_vec_vec = {output_w_vec};
+    PI_sign_mult_preprocess_vec(party_id, PRGs, netio, intermediate_vec, input_x_vec,
+                                input_y_vec_vec, output_z_vec, output_w_vec_vec);
+}
+
+void PI_sign_mult_preprocess_vec(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &netio,
+                                 std::vector<PI_sign_mult_intermediate *> &intermediate_vec,
+                                 std::vector<MSSshare *> &input_x_vec,
+                                 std::vector<std::vector<MSSshare *>> &input_y_vec_vec,
+                                 std::vector<MSSshare *> &output_z_vec,
+                                 std::vector<std::vector<MSSshare *>> &output_w_vec_vec) {
+    int batch_size = (int)intermediate_vec.size();
 #ifdef DEBUG_MODE
-    if (!input_x->has_preprocess) {
-        error("PI_sign_mult_preprocess: input_x must be preprocessed before calling");
+    if ((int)input_x_vec.size() != batch_size || (int)input_y_vec_vec.size() != batch_size ||
+        (int)output_z_vec.size() != batch_size || (int)output_w_vec_vec.size() != batch_size) {
+        error("PI_sign_mult_preprocess_vec: batch input size mismatch");
     }
-    if (intermediate.has_preprocess) {
-        error("PI_sign_mult_preprocess has already been called on this object");
-    }
-    if (output_z->has_preprocess) {
-        error("PI_sign_mult_preprocess: output_z has already been preprocessed");
-    }
-    if (input_x->BITLEN != ell || output_z->BITLEN != ell) {
-        error("PI_sign_mult_preprocess: input_x/output_z bitlen mismatch");
-    }
-    if (output_w_vec.size() != (size_t)y_size) {
-        error("PI_sign_mult_preprocess: output_w_vec size mismatch");
-    }
-    if (intermediate.r_double_prime_list.size() != (size_t)y_size ||
-        intermediate.ry_rz_share_list.size() != (size_t)y_size) {
-        error("PI_sign_mult_preprocess: intermediate y-size mismatch");
-    }
-    for (int j = 0; j < y_size; j++) {
-        if (!input_y_vec[j]->has_preprocess) {
-            error("PI_sign_mult_preprocess: input_y must be preprocessed before calling");
-        }
-        if (input_y_vec[j]->BITLEN != ell || output_w_vec[j]->BITLEN != ell) {
-            error("PI_sign_mult_preprocess: input_y/output_w bitlen mismatch");
-        }
-        if (output_w_vec[j]->has_preprocess) {
-            error("PI_sign_mult_preprocess: output_w has already been preprocessed");
-        }
-    }
-    intermediate.has_preprocess = true;
 #endif
 
-    MSSshare &x = *input_x;
-    MSSshare &z = *output_z;
-    MSSshare &r_prime = intermediate.r_prime;
-    bool &Delta = intermediate.Delta;
-    ShareValue &Gamma = intermediate.Gamma;
-    std::vector<ShareValue> &rx_list = intermediate.rx_list;
-    std::vector<MSSshare> &r_double_prime_list = intermediate.r_double_prime_list;
-    std::vector<MSSshare> &ry_rz_share_list = intermediate.ry_rz_share_list;
-    ShareValue p = intermediate.p;
-    ShareValue mask = intermediate.mask;
-    int bytep = byte_of(p);
-    int bytem = x.BYTELEN;
+    std::vector<ShareValue> gamma_local_list;
+    std::vector<int> gamma_bytelen_list;
+    gamma_local_list.reserve(batch_size);
+    gamma_bytelen_list.reserve(batch_size);
 
-    // Step 1: preprocess [r']^M, [r_z]^M, [r''_j]^M, [r_{w,j}]^M, [r_y,j*r_z]^M
-    MSSshare_preprocess(0, party_id, PRGs, netio, &r_prime);
-    MSSshare_preprocess(0, party_id, PRGs, netio, &z);
-    for (int j = 0; j < y_size; j++) {
-        MSSshare_preprocess(0, party_id, PRGs, netio, &r_double_prime_list[j]);
-        MSSshare_preprocess(0, party_id, PRGs, netio, output_w_vec[j]);
-        MSSshare_preprocess(0, party_id, PRGs, netio, &ry_rz_share_list[j]);
-    }
+    for (int b = 0; b < batch_size; b++) {
+        PI_sign_mult_intermediate &intermediate = *intermediate_vec[b];
+        MSSshare &x = *input_x_vec[b];
+        MSSshare &z = *output_z_vec[b];
+        std::vector<MSSshare *> &input_y_vec = input_y_vec_vec[b];
+        std::vector<MSSshare *> &output_w_vec = output_w_vec_vec[b];
 
-    // Step 2: P0/P1 prepare r_x bits (same as PI_sign)
-    if (party_id == 0 || party_id == 1) {
-        for (int i = 0; i < ell - 1; i++) {
-            ShareValue r_i = 0;
-            PRGs[0].gen_random_data(&r_i, sizeof(ShareValue));
-            rx_list[i] = r_i % p;
+        int ell = intermediate.ell;
+        int y_size = input_y_vec.size();
+#ifdef DEBUG_MODE
+        if (!input_x_vec[b]->has_preprocess) {
+            error("PI_sign_mult_preprocess_vec: input_x must be preprocessed before calling");
         }
-    }
-    if (party_id == 0) {
-        ShareValue rx_hat = (x.v1 + x.v2) & (x.MASK >> 1);
-        for (int i = 0; i < ell - 1; i++) {
-            ShareValue bit = (rx_hat >> (ell - 2 - i)) & 1;
-            bit ^= 1;
-            bit = pi_sign_mult_detail::mod_sub_p(bit, rx_list[i], p);
-            netio.store_data(2, &bit, bytep);
+        if (intermediate.has_preprocess) {
+            error("PI_sign_mult_preprocess_vec has already been called on this object");
         }
-    } else if (party_id == 2) {
-        for (int i = 0; i < ell - 1; i++) {
-            ShareValue r_i = 0;
-            netio.recv_data(0, &r_i, bytep);
-            rx_list[i] = r_i;
+        if (output_z_vec[b]->has_preprocess) {
+            error("PI_sign_mult_preprocess_vec: output_z has already been preprocessed");
         }
-    }
+        if (input_x_vec[b]->BITLEN != ell || output_z_vec[b]->BITLEN != ell) {
+            error("PI_sign_mult_preprocess_vec: input_x/output_z bitlen mismatch");
+        }
+        if ((int)output_w_vec.size() != y_size) {
+            error("PI_sign_mult_preprocess_vec: output_w_vec size mismatch");
+        }
+        if ((int)intermediate.r_double_prime_list.size() != y_size ||
+            (int)intermediate.ry_rz_share_list.size() != y_size) {
+            error("PI_sign_mult_preprocess_vec: intermediate y-size mismatch");
+        }
+        for (int j = 0; j < y_size; j++) {
+            if (!input_y_vec[j]->has_preprocess) {
+                error("PI_sign_mult_preprocess_vec: input_y must be preprocessed before calling");
+            }
+            if (input_y_vec[j]->BITLEN != ell || output_w_vec[j]->BITLEN != ell) {
+                error("PI_sign_mult_preprocess_vec: input_y/output_w bitlen mismatch");
+            }
+            if (output_w_vec[j]->has_preprocess) {
+                error("PI_sign_mult_preprocess_vec: output_w has already been preprocessed");
+            }
+        }
+        intermediate.has_preprocess = true;
+#endif
 
-    // Step 3: P1/P2 sample Delta and reveal Gamma
-    if (party_id == 1 || party_id == 2) {
-        ShareValue tmp = 0;
-        PRGs[1].gen_random_data(&tmp, sizeof(ShareValue));
-        Delta = (tmp & 1);
-        Gamma = Delta ? ((-r_prime.v2) & mask) : (r_prime.v2 & mask);
-        Gamma = (Gamma - z.v2) & mask;
-        if (party_id == 1) {
-            Gamma = (Gamma + (Delta ? 1 : 0)) & mask;
-            netio.store_data(2, &Gamma, bytem);
-        } else {
-            tmp = 0;
-            netio.recv_data(1, &tmp, bytem);
-            Gamma = (Gamma + tmp) & mask;
-        }
-    }
+        MSSshare &r_prime = intermediate.r_prime;
+        bool &Delta = intermediate.Delta;
+        ShareValue &Gamma = intermediate.Gamma;
+        std::vector<ShareValue> &rx_list = intermediate.rx_list;
+        std::vector<MSSshare> &r_double_prime_list = intermediate.r_double_prime_list;
+        std::vector<MSSshare> &ry_rz_share_list = intermediate.ry_rz_share_list;
+        ShareValue p = intermediate.p;
+        ShareValue mask = intermediate.mask;
+        int bytep = byte_of(p);
+        int bytem = x.BYTELEN;
 
-    // Step 4: P0 shares r_{y,j} * r_z to P1/P2
-    ShareValue r_z = 0;
-    if (party_id == 0) {
-        r_z = (z.v1 + z.v2) & mask;
-    }
-    for (int j = 0; j < y_size; j++) {
-        ShareValue ry_mul_rz = 0;
+        // Step 1: preprocess [r']^M, [r_z]^M, [r''_j]^M, [r_{w,j}]^M, [r_y,j*r_z]^M
+        MSSshare_preprocess(0, party_id, PRGs, netio, &r_prime);
+        MSSshare_preprocess(0, party_id, PRGs, netio, &z);
+        for (int j = 0; j < y_size; j++) {
+            MSSshare_preprocess(0, party_id, PRGs, netio, &r_double_prime_list[j]);
+            MSSshare_preprocess(0, party_id, PRGs, netio, output_w_vec[j]);
+            MSSshare_preprocess(0, party_id, PRGs, netio, &ry_rz_share_list[j]);
+        }
+
+        // Step 2: P0/P1 prepare r_x bits (same as PI_sign)
+        if (party_id == 0 || party_id == 1) {
+            for (int i = 0; i < ell - 1; i++) {
+                ShareValue r_i = 0;
+                PRGs[0].gen_random_data(&r_i, sizeof(ShareValue));
+                rx_list[i] = r_i % p;
+            }
+        }
         if (party_id == 0) {
-            ShareValue r_y = (input_y_vec[j]->v1 + input_y_vec[j]->v2) & mask;
-            ry_mul_rz = (r_y * r_z) & mask;
+            ShareValue rx_hat = (x.v1 + x.v2) & (x.MASK >> 1);
+            for (int i = 0; i < ell - 1; i++) {
+                ShareValue bit = (rx_hat >> (ell - 2 - i)) & 1;
+                bit ^= 1;
+                bit = pi_sign_mult_detail::mod_sub_p(bit, rx_list[i], p);
+                netio.store_data(2, &bit, bytep);
+            }
+        } else if (party_id == 2) {
+            for (int i = 0; i < ell - 1; i++) {
+                ShareValue r_i = 0;
+                netio.recv_data(0, &r_i, bytep);
+                rx_list[i] = r_i;
+            }
         }
-        MSSshare_share_from_store(party_id, netio, &ry_rz_share_list[j], ry_mul_rz);
+
+        // Step 3(local): P1/P2 sample Delta and compute local Gamma share term.
+        if (party_id == 1 || party_id == 2) {
+            ShareValue tmp = 0;
+            PRGs[1].gen_random_data(&tmp, sizeof(ShareValue));
+            Delta = (tmp & 1);
+            Gamma = Delta ? ((-r_prime.v2) & mask) : (r_prime.v2 & mask);
+            Gamma = (Gamma - z.v2) & mask;
+            if (party_id == 1) {
+                Gamma = (Gamma + (Delta ? 1 : 0)) & mask;
+            }
+            gamma_local_list.push_back(Gamma);
+            gamma_bytelen_list.push_back(bytem);
+        }
+
+        // Step 4: P0 shares r_{y,j} * r_z to P1/P2
+        ShareValue r_z = 0;
+        if (party_id == 0) {
+            r_z = (z.v1 + z.v2) & mask;
+        }
+        for (int j = 0; j < y_size; j++) {
+            ShareValue ry_mul_rz = 0;
+            if (party_id == 0) {
+                ShareValue r_y = (input_y_vec[j]->v1 + input_y_vec[j]->v2) & mask;
+                ry_mul_rz = (r_y * r_z) & mask;
+            }
+            MSSshare_share_from_store(party_id, netio, &ry_rz_share_list[j], ry_mul_rz);
+        }
+    }
+
+    // Step 3(comm): P1/P2 直接双向发送并在预处理阶段还原 Gamma（不使用store）。
+    if (party_id == 1 || party_id == 2) {
+        for (int i = 0; i < (int)gamma_local_list.size(); i++) {
+            netio.send_data(3 - party_id, &gamma_local_list[i], gamma_bytelen_list[i]);
+        }
+        for (int i = 0; i < batch_size; i++) {
+            ShareValue peer = 0;
+            int bytem = intermediate_vec[i]->r_prime.BYTELEN;
+            netio.recv_data(3 - party_id, &peer, bytem);
+            intermediate_vec[i]->Gamma = (intermediate_vec[i]->Gamma + peer) & intermediate_vec[i]->mask;
+        }
     }
 }
 
@@ -181,14 +225,6 @@ void PI_sign_mult(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &netio
     ShareValue mask = intermediate.mask;
     int bytep = byte_of(p);
     int bytem = x.BYTELEN;
-
-    // Step 0: P2 sends revealed Gamma to P1
-    if (party_id == 2) {
-        netio.send_data(1, &Gamma, bytem);
-    } else if (party_id == 1) {
-        Gamma = 0;
-        netio.recv_data(2, &Gamma, bytem);
-    }
 
     std::vector<ShareValue> Gamma2_open(y_size, 0);
 

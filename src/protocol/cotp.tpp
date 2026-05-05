@@ -28,35 +28,57 @@ inline void MSSshare_reshare_to_random_mask(const int party_id, NetIOMP &netio, 
 
 void PI_cotp_preprocess(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &netio,
                         PI_cotp_intermediate &intermediate) {
-    int ell = intermediate.ell;
-    int vec_size = intermediate.vec_size;
+    std::vector<PI_cotp_intermediate *> intermediate_vec = {&intermediate};
+    PI_cotp_preprocess_vec(party_id, PRGs, netio, intermediate_vec);
+}
+
+void PI_cotp_preprocess_vec(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &netio,
+                            std::vector<PI_cotp_intermediate *> &intermediate_vec) {
+    int batch_size = (int)intermediate_vec.size();
+
+    std::vector<PI_sign_mult_intermediate *> sign_mult_inters;
+    std::vector<MSSshare *> random_cmp_inputs;
+    std::vector<std::vector<MSSshare *>> random_mul_input_ptrs_vec;
+    std::vector<MSSshare *> sign_outs;
+    std::vector<std::vector<MSSshare *>> mult_out_ptrs_vec;
+    sign_mult_inters.reserve(batch_size);
+    random_cmp_inputs.reserve(batch_size);
+    random_mul_input_ptrs_vec.reserve(batch_size);
+    sign_outs.reserve(batch_size);
+    mult_out_ptrs_vec.reserve(batch_size);
+
+    for (int b = 0; b < batch_size; b++) {
+        PI_cotp_intermediate &intermediate = *intermediate_vec[b];
+        int vec_size = intermediate.vec_size;
 #ifdef DEBUG_MODE
-    if (intermediate.has_preprocess) {
-        error("PI_cotp_preprocess has already been called on this object");
-    }
-    if (vec_size <= 0) {
-        error("PI_cotp_preprocess: vec_size must be positive");
-    }
-    intermediate.has_preprocess = true;
+        if (intermediate.has_preprocess) {
+            error("PI_cotp_preprocess_vec has already been called on this object");
+        }
+        if (vec_size <= 0) {
+            error("PI_cotp_preprocess_vec: vec_size must be positive");
+        }
+        intermediate.has_preprocess = true;
 #endif
 
-    MSSshare &random_cmp_input = intermediate.random_cmp_input;
-    std::vector<MSSshare> &random_mul_input_vec = intermediate.random_mul_input_vec;
-    MSSshare &sign_out = intermediate.sign_out;
-    std::vector<MSSshare> &mult_out_vec = intermediate.mult_out_vec;
-    PI_sign_mult_intermediate &sign_mult_intermediate = intermediate.sign_mult_intermediate;
+        MSSshare &random_cmp_input = intermediate.random_cmp_input;
+        std::vector<MSSshare> &random_mul_input_vec = intermediate.random_mul_input_vec;
 
-    // Random placeholders for online re-sharing target masks.
-    MSSshare_preprocess(0, party_id, PRGs, netio, &random_cmp_input);
-    for (int i = 0; i < vec_size; i++) {
-        MSSshare_preprocess(0, party_id, PRGs, netio, &random_mul_input_vec[i]);
+        // Random placeholders for online re-sharing target masks.
+        MSSshare_preprocess(0, party_id, PRGs, netio, &random_cmp_input);
+        for (int i = 0; i < vec_size; i++) {
+            MSSshare_preprocess(0, party_id, PRGs, netio, &random_mul_input_vec[i]);
+        }
+
+        random_mul_input_ptrs_vec.push_back(make_ptr_vec(random_mul_input_vec));
+        mult_out_ptrs_vec.push_back(make_ptr_vec(intermediate.mult_out_vec));
+        sign_mult_inters.push_back(&intermediate.sign_mult_intermediate);
+        random_cmp_inputs.push_back(&random_cmp_input);
+        sign_outs.push_back(&intermediate.sign_out);
     }
 
-    // Preprocess sign-mult using random placeholders.
-    auto random_mul_input_ptrs = make_ptr_vec(random_mul_input_vec);
-    auto mult_out_ptrs = make_ptr_vec(mult_out_vec);
-    PI_sign_mult_preprocess(party_id, PRGs, netio, sign_mult_intermediate, &random_cmp_input,
-                            random_mul_input_ptrs, &sign_out, mult_out_ptrs);
+    // 批量预处理 sign-mult，减少P1/P2通信轮数。
+    PI_sign_mult_preprocess_vec(party_id, PRGs, netio, sign_mult_inters, random_cmp_inputs,
+                                random_mul_input_ptrs_vec, sign_outs, mult_out_ptrs_vec);
 }
 
 std::vector<ShareValue> PI_cotp(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &netio,

@@ -112,6 +112,98 @@ int main(int argc, char **argv) {
         }
     }
 
+    // 批量preprocess测试：多个sign_mult实例共享一次Gamma预处理通信
+    {
+        const int batch_size = 7;
+        const int y_size = 2;
+        std::vector<PI_sign_mult_intermediate> inters;
+        std::vector<MSSshare> x_share;
+        std::vector<std::vector<MSSshare>> y_share;
+        std::vector<MSSshare> z_share;
+        std::vector<std::vector<MSSshare>> w_share;
+        inters.reserve(batch_size);
+        x_share.reserve(batch_size);
+        y_share.reserve(batch_size);
+        z_share.reserve(batch_size);
+        w_share.reserve(batch_size);
+
+        for (int b = 0; b < batch_size; b++) {
+            inters.emplace_back(ell, y_size);
+            x_share.emplace_back(ell);
+            y_share.emplace_back(y_size, MSSshare(ell));
+            z_share.emplace_back(ell);
+            w_share.emplace_back(y_size, MSSshare(ell));
+
+            MSSshare_preprocess(0, party_id, PRGs, *netio, &x_share[b]);
+            for (int j = 0; j < y_size; j++) {
+                MSSshare_preprocess(0, party_id, PRGs, *netio, &y_share[b][j]);
+            }
+        }
+
+        std::vector<PI_sign_mult_intermediate *> inter_ptrs;
+        std::vector<MSSshare *> x_ptrs;
+        std::vector<std::vector<MSSshare *>> y_ptrs_vec;
+        std::vector<MSSshare *> z_ptrs;
+        std::vector<std::vector<MSSshare *>> w_ptrs_vec;
+        inter_ptrs.reserve(batch_size);
+        x_ptrs.reserve(batch_size);
+        y_ptrs_vec.reserve(batch_size);
+        z_ptrs.reserve(batch_size);
+        w_ptrs_vec.reserve(batch_size);
+
+        for (int b = 0; b < batch_size; b++) {
+            inter_ptrs.push_back(&inters[b]);
+            x_ptrs.push_back(&x_share[b]);
+            y_ptrs_vec.push_back(make_ptr_vec(y_share[b]));
+            z_ptrs.push_back(&z_share[b]);
+            w_ptrs_vec.push_back(make_ptr_vec(w_share[b]));
+        }
+
+        PI_sign_mult_preprocess_vec(party_id, PRGs, *netio, inter_ptrs, x_ptrs, y_ptrs_vec,
+                                    z_ptrs, w_ptrs_vec);
+        netio->send_stored_data_all();
+
+        for (int b = 0; b < batch_size; b++) {
+            ShareValue x_plain = 0;
+            if (b % 3 == 0) {
+                x_plain = (ShareValue)(100 + b) & x_share[b].MASK;
+            } else if (b % 3 == 1) {
+                x_plain = ((ShareValue(1) << (ell - 1)) + 19 * b) & x_share[b].MASK;
+            } else {
+                private_PRG.gen_random_data(&x_plain, sizeof(ShareValue));
+                x_plain &= x_share[b].MASK;
+            }
+            MSSshare_share_from(0, party_id, *netio, &x_share[b], x_plain);
+
+            std::vector<ShareValue> y_plain(y_size, 0);
+            for (int j = 0; j < y_size; j++) {
+                y_plain[j] = (ShareValue)(b * 31 + j * 7 + 5) & x_share[b].MASK;
+                MSSshare_share_from(0, party_id, *netio, &y_share[b][j], y_plain[j]);
+            }
+
+            auto y_ptrs = make_ptr_vec(y_share[b]);
+            auto w_ptrs = make_ptr_vec(w_share[b]);
+            PI_sign_mult(party_id, PRGs, *netio, inters[b], &x_share[b], y_ptrs, &z_share[b], w_ptrs);
+
+            ShareValue z_rec = MSSshare_recon(party_id, *netio, &z_share[b]);
+            ShareValue expected_z = (x_plain >> (ell - 1)) & 1;
+            if (party_id == 0 && z_rec != expected_z) {
+                cout << "batch preprocess z mismatch at b=" << b << ", expected=" << expected_z
+                     << ", got=" << z_rec << endl;
+                return 1;
+            }
+            for (int j = 0; j < y_size; j++) {
+                ShareValue w_rec = MSSshare_recon(party_id, *netio, &w_share[b][j]);
+                ShareValue expected_w = expected_z ? y_plain[j] : 0;
+                if (party_id == 0 && w_rec != expected_w) {
+                    cout << "batch preprocess w mismatch at b=" << b << ", j=" << j
+                         << ", expected=" << expected_w << ", got=" << w_rec << endl;
+                    return 1;
+                }
+            }
+        }
+    }
+
     cout << "PI_sign_mult test passed!" << endl;
     delete netio;
     return 0;

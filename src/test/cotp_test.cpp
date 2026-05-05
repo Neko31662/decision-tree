@@ -136,6 +136,80 @@ int main(int argc, char **argv) {
         }
     }
 
+    // 批量preprocess测试：多个cotp实例共享一次预处理通信
+    {
+        const int batch_size = 6;
+        const int vec_size = 2;
+        std::vector<MSSshare> x_share, y_share;
+        std::vector<std::vector<MSSshare>> L_share, R_share;
+        std::vector<PI_cotp_intermediate> inters;
+        x_share.reserve(batch_size);
+        y_share.reserve(batch_size);
+        L_share.reserve(batch_size);
+        R_share.reserve(batch_size);
+        inters.reserve(batch_size);
+
+        for (int b = 0; b < batch_size; b++) {
+            x_share.emplace_back(ell);
+            y_share.emplace_back(ell);
+            L_share.emplace_back(vec_size, MSSshare(ell));
+            R_share.emplace_back(vec_size, MSSshare(ell));
+            inters.emplace_back(ell, vec_size);
+
+            MSSshare_preprocess(0, party_id, PRGs, *netio, &x_share[b]);
+            MSSshare_preprocess(0, party_id, PRGs, *netio, &y_share[b]);
+            for (int i = 0; i < vec_size; i++) {
+                MSSshare_preprocess(0, party_id, PRGs, *netio, &L_share[b][i]);
+                MSSshare_preprocess(0, party_id, PRGs, *netio, &R_share[b][i]);
+            }
+        }
+
+        std::vector<PI_cotp_intermediate *> inter_ptrs;
+        inter_ptrs.reserve(batch_size);
+        for (int b = 0; b < batch_size; b++) {
+            inter_ptrs.push_back(&inters[b]);
+        }
+        PI_cotp_preprocess_vec(party_id, PRGs, *netio, inter_ptrs);
+        netio->send_stored_data_all();
+
+        for (int b = 0; b < batch_size; b++) {
+            ShareValue x_plain = (ShareValue)(100 + 13 * b) & mask;
+            ShareValue y_plain = (ShareValue)(90 + 17 * b) & mask;
+            if (b % 2 == 1) {
+                x_plain = ((ShareValue(1) << (ell - 1)) + 5 * b) & mask;
+                y_plain = ((ShareValue(1) << (ell - 1)) + 9 * b) & mask;
+            }
+            MSSshare_share_from(0, party_id, *netio, &x_share[b], x_plain);
+            MSSshare_share_from(0, party_id, *netio, &y_share[b], y_plain);
+
+            std::vector<ShareValue> L_plain(vec_size), R_plain(vec_size);
+            for (int i = 0; i < vec_size; i++) {
+                L_plain[i] = (ShareValue)(b * 41 + i * 11 + 3) & mask;
+                R_plain[i] = (ShareValue)(b * 37 + i * 7 + 5) & mask;
+                MSSshare_share_from(0, party_id, *netio, &L_share[b][i], L_plain[i]);
+                MSSshare_share_from(0, party_id, *netio, &R_share[b][i], R_plain[i]);
+            }
+
+            auto L_ptrs = make_ptr_vec(L_share[b]);
+            auto R_ptrs = make_ptr_vec(R_share[b]);
+            std::vector<ShareValue> out_plain =
+                PI_cotp(party_id, PRGs, *netio, inters[b], &x_share[b], &y_share[b], L_ptrs, R_ptrs);
+
+            if (party_id == 0) {
+                bool cond = to_signed_ell(x_plain, ell) >= to_signed_ell(y_plain, ell);
+                for (int i = 0; i < vec_size; i++) {
+                    ShareValue expected = cond ? L_plain[i] : R_plain[i];
+                    if (out_plain[i] != expected) {
+                        cout << "COTP batch preprocess mismatch at b=" << b << ", idx=" << i
+                             << ", cond=" << cond << ", expected=" << expected
+                             << ", got=" << out_plain[i] << endl;
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+
     cout << "PI_cotp test passed!" << endl;
     delete netio;
     return 0;

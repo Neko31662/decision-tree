@@ -441,9 +441,14 @@ void PI_tree_protocol_preprocess(const int party_id, std::vector<PRGSync> &PRGs,
     }
     intermediate.cotp_inters.clear();
     intermediate.cotp_inters.reserve(rounds);
+    std::vector<PI_cotp_intermediate *> cotp_inter_ptrs;
+    cotp_inter_ptrs.reserve(rounds);
     for (int iter = 0; iter < rounds; iter++) {
         intermediate.cotp_inters.emplace_back(ell, 2);
-        PI_cotp_preprocess(party_id, PRGs, netio, intermediate.cotp_inters.back());
+        cotp_inter_ptrs.push_back(&intermediate.cotp_inters.back());
+    }
+    if (!cotp_inter_ptrs.empty()) {
+        PI_cotp_preprocess_vec(party_id, PRGs, netio, cotp_inter_ptrs);
     }
 
     netio.send_stored_data_all();

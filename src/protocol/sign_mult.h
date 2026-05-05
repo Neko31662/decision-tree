@@ -35,6 +35,16 @@ void PI_sign_mult_preprocess(const int party_id, std::vector<PRGSync> &PRGs, Net
                              std::vector<MSSshare *> &input_y_vec, MSSshare *output_z,
                              std::vector<MSSshare *> &output_w_vec);
 
+/* 预处理 PI_sign_mult 协议（批量版）
+ * 说明：多个实例共享一轮 P1<->P2 的 Gamma 还原通信。
+ */
+void PI_sign_mult_preprocess_vec(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &netio,
+                                 std::vector<PI_sign_mult_intermediate *> &intermediate_vec,
+                                 std::vector<MSSshare *> &input_x_vec,
+                                 std::vector<std::vector<MSSshare *>> &input_y_vec_vec,
+                                 std::vector<MSSshare *> &output_z_vec,
+                                 std::vector<std::vector<MSSshare *>> &output_w_vec_vec);
+
 /* 在线执行 PI_sign_mult 协议
  */
 void PI_sign_mult(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &netio,

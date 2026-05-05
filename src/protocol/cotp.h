@@ -33,6 +33,12 @@ struct PI_cotp_intermediate {
 void PI_cotp_preprocess(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &netio,
                         PI_cotp_intermediate &intermediate);
 
+/* Preprocess for COTP（批量版）
+ * 说明：多个COTP实例共享一轮sign-mult Gamma预处理通信。
+ */
+void PI_cotp_preprocess_vec(const int party_id, std::vector<PRGSync> &PRGs, NetIOMP &netio,
+                            std::vector<PI_cotp_intermediate *> &intermediate_vec);
+
 /* COTP online:
  * return opened plaintext vector: (x >= y) ? L : R
  */
