@@ -94,6 +94,9 @@ add_test_target(tree_protocol_test)
 # 决策树协议速度测试（按数据集统计preprocess/online耗时）
 add_test_target(tree_speed_test)
 
+# 决策树协议批量在线速度测试（单次preprocess，多次online）
+add_test_target(tree_batch_speed_test)
+
 # DICF（基于FSS-DCF）测试
 add_executable(dicf_test
     ${COMMON_SOURCES}
@@ -127,6 +130,13 @@ target_include_directories(tree_speed_test PRIVATE
 )
 target_compile_features(tree_speed_test PRIVATE cxx_std_20)
 target_link_libraries(tree_speed_test crypto)
+
+target_include_directories(tree_batch_speed_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/fss/include
+    /usr/local/cuda/include
+)
+target_compile_features(tree_batch_speed_test PRIVATE cxx_std_20)
+target_link_libraries(tree_batch_speed_test crypto)
 
 # 明文决策树基础测试（单进程）
 add_executable(plain_tree_test

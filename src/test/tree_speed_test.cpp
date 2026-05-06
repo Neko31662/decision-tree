@@ -63,9 +63,9 @@ static int compute_tree_depth(const plain_tree &tree) {
         vis[u] = 1;
         max_depth = max(max_depth, dep);
 
-        bool is_leaf = (tree.L[u] == plain_tree::INVALID_INDEX && tree.R[u] == plain_tree::INVALID_INDEX &&
-                        tree.Lp[u] == plain_tree::INVALID_INDEX &&
-                        tree.Rp[u] == plain_tree::INVALID_INDEX);
+        bool is_leaf =
+            (tree.L[u] == plain_tree::INVALID_INDEX && tree.R[u] == plain_tree::INVALID_INDEX &&
+             tree.Lp[u] == plain_tree::INVALID_INDEX && tree.Rp[u] == plain_tree::INVALID_INDEX);
         if (!is_leaf) {
             if (tree.L[u] != plain_tree::INVALID_INDEX) {
                 st.push({(int)tree.L[u], dep + 1});
@@ -285,11 +285,16 @@ int main(int argc, char **argv) {
     }
 
     if (party_id == 0) {
+        cout << "cotp: ";
+#ifdef USE_DICF
+        cout << "DICF\n";
+#else
+        cout << "signmult\n";
+#endif
         cout << "\n================ Tree Speed Summary ================\n";
         cout << left << setw(16) << "Dataset" << setw(12) << "Protocol" << setw(16)
-             << "Preprocess(ms)" << setw(14) << "Online(ms)" << setw(12) << "Total(ms)"
-             << setw(16) << "Pre(Byte,sum)" << setw(16) << "On(Byte,sum)" << setw(16)
-             << "Comm(Byte)" << "\n";
+             << "Preprocess(ms)" << setw(14) << "Online(ms)" << setw(12) << "Total(ms)" << setw(16)
+             << "Pre(Byte,sum)" << setw(16) << "On(Byte,sum)" << setw(16) << "Comm(Byte)" << "\n";
         cout << string(96, '-') << "\n";
         for (const auto &r : rows) {
             double total = r.preprocess_ms + r.online_ms;
